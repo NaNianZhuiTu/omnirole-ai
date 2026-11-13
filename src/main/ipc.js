@@ -14,6 +14,7 @@ const reader = require('./file-reader');
 const fileOps = require('./file-ops');
 const workspaceHost = require('./workspace-host');
 const workspaceApi = require('./workspace-api');
+const taskEngine = require('./task-engine');
 
 const controllers = new Map();
 
@@ -41,6 +42,9 @@ function guestHandle(channel, fn) {
 }
 
 function register(adapter, getWindow) {
+  taskEngine.setProgressSink(function (instanceId, task) {
+    workspaceHost.notifyInstance(instanceId, 'ws:task:progress', task);
+  });
   handle('app:info', () => ({
     version: require('../../package.json').version,
     runtime: adapter.status(),
@@ -224,6 +228,14 @@ function register(adapter, getWindow) {
   guestHandle('ws:documents:list', (id) => workspaceApi.listDocuments(id));
   guestHandle('ws:documents:create', (id, payload) => workspaceApi.createDocument(id, payload));
   guestHandle('ws:ai:chat', (id, payload) => workspaceApi.chat(id, payload, adapter));
+  guestHandle('ws:ai:execute', (id, payload) => {
+    const started = taskEngine.start(id, { task: payload.task });
+    return { taskId: started.taskId, status: started.status };
+  });
+  guestHandle('ws:ai:getTaskStatus', (id, payload) => taskEngine.getStatus(id, payload.taskId));
+  guestHandle('ws:ai:getTaskHistory', (id) => taskEngine.history(id));
+  guestHandle('ws:ai:confirmAction', (id, payload) => taskEngine.confirm(id, payload));
+  guestHandle('ws:ai:cancelTask', (id, payload) => taskEngine.cancel(id, payload));
 }
 
 module.exports = { register };

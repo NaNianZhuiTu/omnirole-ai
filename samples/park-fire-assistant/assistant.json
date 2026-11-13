@@ -1,0 +1,52 @@
+{
+  "schemaVersion": "1.0",
+  "id": "park-fire",
+  "name": "园区消防助手",
+  "version": "1.0.0",
+  "industry": "安全",
+  "role": "消防管理员",
+  "accent": "#d0453b",
+  "icon": "消",
+  "workspaceType": "html",
+  "duties": ["整理消防演练记录", "跟踪隐患整改"],
+  "rules": ["资料里没有的内容写未找到，不得编造"],
+  "sources": [
+    { "id": "drill", "label": "消防演练记录", "match": "*演练记录.csv" },
+    { "id": "hazard", "label": "隐患台账", "match": "*隐患台账.csv" },
+    { "id": "ledger", "label": "设施台账", "match": "*设施台账.csv" },
+    { "id": "patrol", "label": "巡查记录", "match": "*巡查记录.csv" },
+    { "id": "rule", "label": "管理制度", "match": "*管理制度.txt" }
+  ],
+  "zones": [
+    {
+      "id": "drills",
+      "title": "消防演练",
+      "view": "table",
+      "sourceId": "drill",
+      "fields": [
+        { "key": "date", "label": "日期" },
+        { "key": "place", "label": "地点" },
+        { "key": "subject", "label": "科目" },
+        { "key": "people", "label": "参与人数" },
+        { "key": "issue", "label": "存在问题" }
+      ]
+    },
+    {
+      "id": "hazards",
+      "title": "隐患整改",
+      "view": "table",
+      "sourceId": "hazard",
+      "fields": [
+        { "key": "id", "label": "编号" },
+        { "key": "place", "label": "位置" },
+        { "key": "desc", "label": "隐患描述" },
+        { "key": "status", "label": "整改状态" },
+        { "key": "due", "label": "整改期限" }
+      ]
+    }
+  ],
+  "layout": [
+    { "cols": [{ "zone": "drills", "span": 1 }, { "zone": "hazards", "span": 1 }] }
+  ],
+  "chatContext": ["drills", "hazards"]
+}

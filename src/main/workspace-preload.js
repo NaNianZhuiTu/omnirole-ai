@@ -11,6 +11,12 @@
  * window.desktop.documents.list()
  * window.desktop.documents.create({ name, content, format? })
  * window.desktop.ai.chat({ messages })
+ * window.desktop.ai.execute({ task })
+ * window.desktop.ai.getTaskStatus({ taskId })
+ * window.desktop.ai.getTaskHistory()
+ * window.desktop.ai.confirmAction({ taskId, actionId, approved })
+ * window.desktop.ai.cancelTask({ taskId })
+ * window.desktop.ai.onProgress(callback)  返回取消监听的函数
  */
 'use strict';
 const { contextBridge, ipcRenderer } = require('electron');
@@ -43,6 +49,16 @@ contextBridge.exposeInMainWorld('desktop', {
     create: function (p) { return call('ws:documents:create', p || {}); }
   },
   ai: {
-    chat: function (p) { return call('ws:ai:chat', p || {}); }
+    chat: function (p) { return call('ws:ai:chat', p || {}); },
+    execute: function (p) { return call('ws:ai:execute', p || {}); },
+    getTaskStatus: function (p) { return call('ws:ai:getTaskStatus', p || {}); },
+    getTaskHistory: function () { return call('ws:ai:getTaskHistory', {}); },
+    confirmAction: function (p) { return call('ws:ai:confirmAction', p || {}); },
+    cancelTask: function (p) { return call('ws:ai:cancelTask', p || {}); },
+    onProgress: function (cb) {
+      const handler = function (_event, data) { cb(data); };
+      ipcRenderer.on('ws:task:progress', handler);
+      return function () { ipcRenderer.removeListener('ws:task:progress', handler); };
+    }
   }
 });

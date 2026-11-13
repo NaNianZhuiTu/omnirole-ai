@@ -106,13 +106,21 @@ function ensureProtocol(instanceId) {
 
 function instanceFromEvent(event) {
   const senderId = event && event.sender && event.sender.id;
-  const id = guestIds.get(senderId);
+  const record = guestIds.get(senderId);
+  const id = record && record.instanceId ? record.instanceId : record;
   if (!id) throw new Error('该接口仅允许当前助手的 HTML 工作台调用');
   const cur = library.current();
   if (!cur.instance || cur.instance.id !== id) throw new Error('当前助手已切换，已拒绝此操作');
   const type = cur.instance.workspaceType || (cur.pkg && cur.pkg.workspaceType);
   if (type !== 'html') throw new Error('当前助手不是 HTML 工作台');
   return id;
+}
+
+function notifyInstance(instanceId, channel, payload) {
+  guestIds.forEach(function (record) {
+    if (!record || record.instanceId !== instanceId || !record.wc || record.wc.isDestroyed()) return;
+    try { record.wc.send(channel, payload); } catch (e) { /* 页面已关闭 */ }
+  });
 }
 
 function install(win) {
@@ -132,7 +140,7 @@ function install(win) {
 
   win.webContents.on('did-attach-webview', function (_event, guest) {
     const instanceId = pendingIds.shift();
-    if (instanceId) guestIds.set(guest.id, instanceId);
+    if (instanceId) guestIds.set(guest.id, { instanceId: instanceId, wc: guest });
     guest.setWindowOpenHandler(function () { return { action: 'deny' }; });
     const blockNavigation = function (event, url) {
       if (!isWorkspaceDocumentUrl(url)) event.preventDefault();
@@ -143,4 +151,4 @@ function install(win) {
   });
 }
 
-module.exports = { install, instanceFromEvent, serve };
+module.exports = { install, instanceFromEvent, serve, notifyInstance };

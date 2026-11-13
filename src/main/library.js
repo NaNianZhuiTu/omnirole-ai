@@ -161,8 +161,8 @@ function createInstanceFiles(id, pkg, name, options, htmlSource) {
     writeJson(instanceFile(id, 'authorized-paths.json'), { paths: [] });
   }
   if (!htmlSource) return;
-  ['package', 'workspace', 'data', 'documents', 'index', 'conversations', 'versions', 'config', 'knowledge'].forEach(function (name) {
-    fs.mkdirSync(path.join(dir, name), { recursive: true });
+  ['package', 'workspace', 'data', 'documents', 'index', 'conversations', 'versions', 'config', 'knowledge', 'tasks'].forEach(function (folder) {
+    fs.mkdirSync(path.join(dir, folder), { recursive: true });
   });
   loader.copyPackageTree(htmlSource.sourceDir, path.join(dir, 'package'));
   loader.copyPackageTree(path.join(htmlSource.sourceDir, 'workspace'), path.join(dir, 'workspace'));
@@ -481,6 +481,7 @@ function init() {
   r.instances = r.instances || [];
   if (!r.instances.some(i => i.id === r.activeId)) r.activeId = r.instances.length ? r.instances[0].id : null;
   saveRegistry(r);
+  try { require('./task-engine').recoverInterrupted(); } catch (e) { /* 任务恢复失败不阻断启动 */ }
 }
 
 module.exports = {

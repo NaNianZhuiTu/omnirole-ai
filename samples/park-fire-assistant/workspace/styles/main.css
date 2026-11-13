@@ -1,0 +1,19 @@
+body { margin: 0; background: #f2f5fa; color: #172033; font: 14px/1.6 "Segoe UI", "Microsoft YaHei", sans-serif; }
+main { max-width: 880px; margin: 0 auto; padding: 28px 22px 40px; }
+h1 { margin: 0 0 6px; font-size: 22px; }
+.sub { margin: 0 0 18px; color: #68738a; }
+.card { background: #fff; border: 1px solid #e4e9f2; border-radius: 14px; padding: 16px; margin-bottom: 12px; box-shadow: 0 8px 26px rgba(23,32,51,.06); }
+label { display: block; font-size: 12px; color: #68738a; margin-bottom: 6px; }
+textarea { width: 100%; box-sizing: border-box; border: 1px solid #e4e9f2; border-radius: 10px; padding: 10px 12px; resize: vertical; min-height: 72px; }
+.row { display: flex; gap: 8px; align-items: center; margin-top: 10px; }
+button { border: 0; border-radius: 8px; padding: 8px 14px; cursor: pointer; }
+.primary { background: #315efb; color: #fff; }
+.ghost { background: #edf2ff; color: #1b3fb8; }
+.danger { background: #fdeceb; color: #9d2b24; }
+.status { margin-left: auto; font-size: 12px; color: #1b3fb8; background: #edf2ff; border-radius: 99px; padding: 3px 10px; }
+.activity { margin: 0; padding-left: 18px; }
+.activity li { margin: 4px 0; }
+.confirm { background: #fff5e8; border: 1px solid #f4d9ae; border-radius: 10px; padding: 12px; }
+pre { white-space: pre-wrap; background: #f7f9fc; border-radius: 8px; padding: 8px; font-size: 12px; }
+.file { display: block; margin-top: 6px; color: #16845b; }
+.error { color: #9d2b24; }

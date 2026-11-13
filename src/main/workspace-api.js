@@ -28,6 +28,18 @@ function requireCurrent(instanceId) {
   return cur;
 }
 
+function requireBound(instanceId) {
+  if (!/^[A-Za-z0-9_-]+$/.test(String(instanceId || ''))) throw new Error('助手实例无效');
+  const found = (library.listInstances().instances || []).find(function (item) { return item.id === instanceId; });
+  if (!found) throw new Error('助手实例不存在');
+  if (found.workspaceType !== 'html') throw new Error('当前助手不是 HTML 工作台');
+  return found;
+}
+
+function gate(instanceId, scope) {
+  return scope === 'bound' ? requireBound(instanceId) : requireCurrent(instanceId);
+}
+
 function authorizedRoots(instanceId) {
   return library.getAuthorizedPaths(instanceId).map(function (root) {
     try { return fs.realpathSync(root); }
@@ -85,8 +97,8 @@ function listFiles(instanceId, payload) {
   return { path: abs, entries: entries, truncated: !!listed.truncated };
 }
 
-function searchFiles(instanceId, payload) {
-  requireCurrent(instanceId);
+function searchFiles(instanceId, payload, scope) {
+  gate(instanceId, scope);
   const body = requireObject(payload);
   const query = typeof body.query === 'string' ? body.query.trim() : '';
   if (!query) throw new Error('query 不能为空');
@@ -134,8 +146,8 @@ function searchFiles(instanceId, payload) {
   return { query: query, hits: hits };
 }
 
-function readFile(instanceId, payload) {
-  requireCurrent(instanceId);
+function readFile(instanceId, payload, scope) {
+  gate(instanceId, scope);
   const body = requireObject(payload);
   if (typeof body.path !== 'string' || !body.path.trim()) throw new Error('path 必须是字符串');
   const abs = assertAuthorized(instanceId, body.path);
@@ -171,8 +183,8 @@ function dataPath(instanceId, name) {
   return { rel: rel, abs: abs, root: root };
 }
 
-function readData(instanceId, payload) {
-  requireCurrent(instanceId);
+function readData(instanceId, payload, scope) {
+  gate(instanceId, scope);
   const body = requireObject(payload);
   if (typeof body.name !== 'string') throw new Error('name 必须是字符串');
   const file = dataPath(instanceId, body.name);
@@ -184,8 +196,8 @@ function readData(instanceId, payload) {
   catch (e) { throw new Error('数据文件不是合法 JSON'); }
 }
 
-function writeData(instanceId, payload) {
-  requireCurrent(instanceId);
+function writeData(instanceId, payload, scope) {
+  gate(instanceId, scope);
   const body = requireObject(payload);
   if (typeof body.name !== 'string') throw new Error('name 必须是字符串');
   if (!Object.prototype.hasOwnProperty.call(body, 'value') || typeof body.value === 'undefined') {
@@ -222,8 +234,8 @@ function documentPath(instanceId, name, format) {
   return { rel: rel, abs: abs, root: root };
 }
 
-function listDocuments(instanceId) {
-  requireCurrent(instanceId);
+function listDocuments(instanceId, scope) {
+  gate(instanceId, scope);
   const root = path.join(instanceDir(instanceId), 'documents');
   const documents = [];
   function walk(dir) {
@@ -243,8 +255,8 @@ function listDocuments(instanceId) {
   return { documents: documents };
 }
 
-function createDocument(instanceId, payload) {
-  requireCurrent(instanceId);
+function createDocument(instanceId, payload, scope) {
+  gate(instanceId, scope);
   const body = requireObject(payload);
   if (typeof body.name !== 'string') throw new Error('name 必须是字符串');
   if (typeof body.content !== 'string') throw new Error('content 必须是字符串');

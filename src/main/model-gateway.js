@@ -155,7 +155,154 @@ async function streamChat(args) {
   return full;
 }
 
+function supportsTools(settings) {
+  const s = settings || getSettings();
+  if (!isConfigured(s)) return { ok: false, protocol: '', reason: '尚未配置模型。请在「设置」里填写 API Key 或选择本机模型。' };
+  if (!s.model) return { ok: false, protocol: '', reason: '尚未填写模型名称，请在「设置」里补全。' };
+  if (s.provider === 'anthropic') return { ok: true, protocol: 'anthropic', reason: '' };
+  if (s.provider === 'openai-compatible') return { ok: true, protocol: 'openai', reason: '' };
+  return { ok: false, protocol: '', reason: '当前模型协议「' + (s.provider || '未设置') + '」不支持工具调用。目前只支持 OpenAI 兼容接口（含 DeepSeek）和 Anthropic。' };
+}
+
+function toolDefinitions(protocol, tools) {
+  return (tools || []).map(function (tool) {
+    if (protocol === 'anthropic') {
+      return { name: tool.name, description: tool.description, input_schema: tool.parameters };
+    }
+    return { type: 'function', function: { name: tool.name, description: tool.description, parameters: tool.parameters } };
+  });
+}
+
+function toOpenAIMessages(system, messages) {
+  const out = [{ role: 'system', content: system || '' }];
+  (messages || []).forEach(function (message) {
+    if (message.role === 'tool') {
+      out.push({ role: 'tool', tool_call_id: message.toolCallId, content: String(message.content || '') });
+      return;
+    }
+    if (message.role === 'assistant' && message.toolCalls && message.toolCalls.length) {
+      out.push({
+        role: 'assistant',
+        content: message.content || '',
+        tool_calls: message.toolCalls.map(function (call) {
+          return {
+            id: call.id,
+            type: 'function',
+            function: { name: call.name, arguments: JSON.stringify(call.arguments || {}) }
+          };
+        })
+      });
+      return;
+    }
+    out.push({ role: message.role, content: String(message.content || '') });
+  });
+  return out;
+}
+
+function toAnthropicMessages(messages) {
+  const out = [];
+  (messages || []).forEach(function (message) {
+    if (message.role === 'tool') {
+      const block = { type: 'tool_result', tool_use_id: message.toolCallId, content: String(message.content || '') };
+      const prev = out[out.length - 1];
+      if (prev && prev.role === 'user' && Array.isArray(prev.content)) prev.content.push(block);
+      else out.push({ role: 'user', content: [block] });
+      return;
+    }
+    if (message.role === 'assistant' && message.toolCalls && message.toolCalls.length) {
+      const content = [];
+      if (message.content) content.push({ type: 'text', text: String(message.content) });
+      message.toolCalls.forEach(function (call) {
+        content.push({ type: 'tool_use', id: call.id, name: call.name, input: call.arguments || {} });
+      });
+      out.push({ role: 'assistant', content: content });
+      return;
+    }
+    out.push({ role: message.role === 'assistant' ? 'assistant' : 'user', content: String(message.content || '') });
+  });
+  return out;
+}
+
+function parseOpenAICompletion(json) {
+  const choice = json && json.choices && json.choices[0];
+  const message = choice && choice.message || {};
+  const toolCalls = [];
+  (message.tool_calls || []).forEach(function (call, index) {
+    let args = {};
+    const raw = call.function && call.function.arguments;
+    if (typeof raw === 'string' && raw.trim()) {
+      try { args = JSON.parse(raw); }
+      catch (e) { args = { __invalidJson: raw }; }
+    } else if (raw && typeof raw === 'object') args = raw;
+    toolCalls.push({
+      id: call.id || ('call-' + index),
+      name: call.function && call.function.name || '',
+      arguments: args
+    });
+  });
+  return { text: typeof message.content === 'string' ? message.content : '', toolCalls: toolCalls };
+}
+
+function parseAnthropicCompletion(json) {
+  const blocks = json && Array.isArray(json.content) ? json.content : [];
+  const text = [];
+  const toolCalls = [];
+  blocks.forEach(function (block, index) {
+    if (!block || typeof block !== 'object') return;
+    if (block.type === 'text') text.push(block.text || '');
+    if (block.type === 'tool_use') {
+      toolCalls.push({
+        id: block.id || ('tool-' + index),
+        name: block.name || '',
+        arguments: block.input && typeof block.input === 'object' ? block.input : {}
+      });
+    }
+  });
+  return { text: text.join(''), toolCalls: toolCalls };
+}
+
+async function completeWithTools(args) {
+  const settings = args.settings || getSettings();
+  const support = supportsTools(settings);
+  if (!support.ok) throw new Error(support.reason);
+  const tools = toolDefinitions(support.protocol, args.tools || []);
+  const headers = { 'Content-Type': 'application/json' };
+  let url;
+  let body;
+  if (support.protocol === 'anthropic') {
+    url = settings.baseUrl + '/v1/messages';
+    headers['x-api-key'] = settings.apiKey;
+    headers['anthropic-version'] = '2023-06-01';
+    body = {
+      model: settings.model,
+      max_tokens: 4096,
+      temperature: settings.temperature,
+      system: args.system || '',
+      messages: toAnthropicMessages(args.messages),
+      tools: tools
+    };
+  } else {
+    url = settings.baseUrl + '/chat/completions';
+    if (settings.apiKey) headers.Authorization = 'Bearer ' + settings.apiKey;
+    body = {
+      model: settings.model,
+      temperature: settings.temperature,
+      messages: toOpenAIMessages(args.system, args.messages),
+      tools: tools
+    };
+  }
+  const res = await fetch(url, { method: 'POST', headers: headers, body: JSON.stringify(body), signal: args.signal });
+  if (!res.ok) {
+    const detail = await res.text().catch(function () { return ''; });
+    throw new Error('模型请求失败（HTTP ' + res.status + '）：' + detail.slice(0, 300));
+  }
+  const json = await res.json();
+  return support.protocol === 'anthropic' ? parseAnthropicCompletion(json) : parseOpenAICompletion(json);
+}
+
 module.exports = {
   DEFAULT_SETTINGS, PRESETS, getSettings, setSettings, publicSettings,
-  isConfigured, buildContext, buildSystemPrompt, streamChat
+  isConfigured, buildContext, buildSystemPrompt, streamChat,
+  supportsTools, toolDefinitions, toOpenAIMessages, toAnthropicMessages,
+  parseOpenAICompletion, parseAnthropicCompletion, completeWithTools
 };
