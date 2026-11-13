@@ -1,0 +1,27 @@
+{
+  "name": "post-assistant-desktop",
+  "productName": "全岗位 AI 工作助手",
+  "version": "0.1.0",
+  "description": "一套引擎 + 一个助手库，用纯数据岗位包驱动几千个岗位工作台",
+  "main": "src/main/index.js",
+  "author": "local",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "node tools/run-electron.js .",
+    "verify": "node tools/run-electron.js . --verify",
+    "shots": "node tools/run-electron.js . --shots",
+    "pack": "node tools/build-dist.js --dir",
+    "dist": "node tools/build-dist.js --win",
+    "validate": "node tools/validate-packages.js",
+    "smoke": "node tools/smoke-test.js",
+    "icon": "node tools/make-icon.js"
+  },
+  "devDependencies": {
+    "electron": "45.3.1",
+    "electron-builder": "^26.0.12"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

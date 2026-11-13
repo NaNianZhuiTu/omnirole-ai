@@ -1,0 +1,44 @@
+appId: com.local.postassistant
+productName: 全岗位AI工作助手
+copyright: Copyright © 2026
+
+directories:
+  output: dist
+  buildResources: build
+
+files:
+  - src/**/*
+  - packages/**/*
+  - catalog/**/*
+  - samples/**/*
+  - package.json
+  - "!**/*.map"
+  - "!**/.DS_Store"
+
+# 岗位包与示例资料作为普通资源随包发布；用户数据写在 userData 下，升级不覆盖。
+extraResources:
+  - from: packages
+    to: packages
+  - from: catalog
+    to: catalog
+  - from: samples
+    to: samples
+
+win:
+  icon: build/icon.ico
+  target:
+    - target: nsis
+      arch: [x64]
+  artifactName: ${productName}-Setup-${version}.${ext}
+
+nsis:
+  installerIcon: build/icon.ico
+  uninstallerIcon: build/icon.ico
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+  shortcutName: 全岗位AI工作助手
+
+publish: null
