@@ -8,7 +8,7 @@
 <body>
 <main>
   <h1>园区消防助手</h1>
-  <p class="sub">提出一项工作，助手会检索已授权的资料，生成文档并保存到这个助手自己的工作文档里。</p>
+  <p class="sub">这里执行具体工作：检索已授权资料、生成文件并保存到这个助手自己的文档里。主窗口的「AI 助手」只做对话，不会自动保存文件。</p>
   <section class="card">
     <label for="taskInput">要完成的工作</label>
     <textarea id="taskInput">帮我整理今年的消防演练记录，找出已经开展的演练、参与情况和存在的问题，生成一份年度消防演练总结报告，保存到我的工作文档中。</textarea>
@@ -39,6 +39,7 @@
     <p id="report">完成后会显示在这里。</p>
     <p class="error" id="note"></p>
     <div id="files"></div>
+    <div id="diskFiles"></div>
   </section>
 </main>
 <script src="scripts/main.js"></script>

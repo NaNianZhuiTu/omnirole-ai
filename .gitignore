@@ -17,6 +17,10 @@ settings.json
 .smoke-userdata/
 .html-test-userdata/
 .embed-userdata/
+.task-test-userdata/
+.live-test-userdata/
+.live-test-result.json
+.fire-acceptance-userdata/
 
 # 界面截图含本机路径与运行痕迹，暂不入库
 screenshots/

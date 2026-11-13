@@ -45,12 +45,33 @@ function list(instanceId) {
 
 function recover(instanceId) {
   list(instanceId).forEach(function (task) {
-    if (task.status === 'running' || task.status === 'planning' || task.status === 'created') {
+    try {
+      if (!task || typeof task !== 'object') return;
+      if (task.instanceId !== instanceId) {
+        task.instanceId = instanceId;
+        task.status = 'failed';
+        task.error = '任务记录与助手实例不一致，已停止，没有继续执行。';
+        task.programNote = task.error;
+        task.pendingAction = null;
+        task.finishedAt = task.finishedAt || new Date().toISOString();
+        if (!Array.isArray(task.activity)) task.activity = [];
+        task.activity.push({ at: task.finishedAt, text: task.error });
+        save(task);
+        return;
+      }
+      if (task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled') return;
+      const waiting = task.status === 'waiting_confirmation';
       task.status = 'failed';
-      task.error = '程序已关闭，任务中断。已完成的文件写入仍然保留。';
+      task.error = waiting
+        ? '程序已关闭，等待确认的操作没有执行。已保存的文件和数据保持原样。'
+        : '程序已关闭，任务中断。已完成的文件写入仍然保留。';
+      task.programNote = task.error;
+      task.pendingAction = null;
       task.finishedAt = task.finishedAt || new Date().toISOString();
+      if (!Array.isArray(task.activity)) task.activity = [];
+      task.activity.push({ at: task.finishedAt, text: task.error });
       save(task);
-    }
+    } catch (e) { /* 单条记录损坏时继续处理其他任务 */ }
   });
 }
 

@@ -196,6 +196,30 @@ function readData(instanceId, payload, scope) {
   catch (e) { throw new Error('数据文件不是合法 JSON'); }
 }
 
+function assertWritableTarget(root, abs) {
+  let realRoot;
+  try { realRoot = fs.realpathSync(root); }
+  catch (e) { throw new Error('写入目录不可用'); }
+  const instanceRoot = path.resolve(root, '..');
+  let realInstance;
+  try { realInstance = fs.realpathSync(instanceRoot); }
+  catch (e) { realInstance = instanceRoot; }
+  if (!isInside(realInstance, realRoot)) throw new Error('写入目录超出当前助手');
+  let realParent;
+  try { realParent = fs.realpathSync(path.dirname(abs)); }
+  catch (e) { throw new Error('写入目录不可用'); }
+  if (!isInside(realRoot, realParent)) throw new Error('路径超出允许范围');
+  let st = null;
+  try { st = fs.lstatSync(abs); }
+  catch (e) { st = null; }
+  if (!st) return;
+  if (st.isSymbolicLink() || !st.isFile()) throw new Error('拒绝通过符号链接写入');
+  let realFile;
+  try { realFile = fs.realpathSync(abs); }
+  catch (e) { throw new Error('拒绝通过符号链接写入'); }
+  if (!isInside(realRoot, realFile)) throw new Error('路径超出允许范围');
+}
+
 function writeData(instanceId, payload, scope) {
   gate(instanceId, scope);
   const body = requireObject(payload);
@@ -211,6 +235,7 @@ function writeData(instanceId, payload, scope) {
   if (text.length > 256 * 1024) throw new Error('数据过大');
   const value = JSON.parse(text);
   fs.mkdirSync(path.dirname(file.abs), { recursive: true });
+  assertWritableTarget(file.root, file.abs);
   writeJson(file.abs, value);
   return { name: file.rel, bytes: Buffer.byteLength(text) };
 }
@@ -263,6 +288,7 @@ function createDocument(instanceId, payload, scope) {
   if (body.content.length > 200000) throw new Error('文档内容过长');
   const file = documentPath(instanceId, body.name, body.format);
   fs.mkdirSync(path.dirname(file.abs), { recursive: true });
+  assertWritableTarget(file.root, file.abs);
   fs.writeFileSync(file.abs, body.content, 'utf8');
   return { rel: file.rel, bytes: Buffer.byteLength(body.content) };
 }

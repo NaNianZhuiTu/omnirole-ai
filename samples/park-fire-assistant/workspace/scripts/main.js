@@ -14,8 +14,11 @@
 
   function text(id, value) { document.getElementById(id).textContent = value || ''; }
 
+  var assistantId = '';
+
   function render(task) {
     if (!task) return;
+    if (assistantId && task.instanceId && task.instanceId !== assistantId) return;
     taskId = task.id;
     statusText.textContent = labels[task.status] || task.status;
     document.getElementById('cancelBtn').hidden = task.status === 'completed' || task.status === 'failed' || task.status === 'cancelled';
@@ -26,17 +29,21 @@
       li.textContent = item.text;
       list.appendChild(li);
     });
-    var pending = task.pendingAction;
+    var pending = task.status === 'waiting_confirmation' ? task.pendingAction : null;
     var card = document.getElementById('confirmCard');
-    card.hidden = task.status !== 'waiting_confirmation' || !pending;
+    card.hidden = !pending;
     if (pending) {
       text('confirmTitle', pending.title);
       text('confirmTarget', pending.target);
       text('confirmBefore', pending.before);
       text('confirmAfter', pending.after);
     }
-    text('report', task.report || (task.status === 'failed' ? task.error : '完成后会显示在这里。'));
-    text('note', task.programNote || (task.status === 'failed' ? task.error : ''));
+    text('report', task.report || (task.error ? '' : '完成后会显示在这里。'));
+    var reason = task.programNote || '';
+    if ((task.status === 'failed' || task.status === 'cancelled') && task.error && reason.indexOf(task.error) < 0) {
+      reason = reason ? reason + task.error : task.error;
+    }
+    text('note', reason);
     var files = document.getElementById('files');
     files.innerHTML = '';
     (task.savedDocuments || []).forEach(function (file) {
@@ -55,7 +62,28 @@
 
   async function refresh() {
     if (!taskId || !window.desktop) return;
-    render(await window.desktop.ai.getTaskStatus({ taskId: taskId }));
+    var task = await window.desktop.ai.getTaskStatus({ taskId: taskId });
+    render(task);
+    if (!window.desktop.documents || (task.status !== 'completed' && task.status !== 'failed')) return;
+    var listed = await window.desktop.documents.list();
+    var box = document.getElementById('diskFiles');
+    box.innerHTML = '';
+    (listed.documents || []).forEach(function (file) {
+      var p = document.createElement('div');
+      p.className = 'file';
+      p.textContent = '工作文档：' + file.rel;
+      box.appendChild(p);
+    });
+  }
+
+  async function boot() {
+    if (!window.desktop) return;
+    try {
+      var info = await window.desktop.assistant.getInfo();
+      assistantId = info && info.id || '';
+      var history = await window.desktop.ai.getTaskHistory();
+      if (history && history.length) render(history[0]);
+    } catch (e) { /* 还没有任务时保持空状态 */ }
   }
 
   document.getElementById('runBtn').addEventListener('click', async function () {
@@ -69,14 +97,19 @@
   });
   document.getElementById('cancelBtn').addEventListener('click', async function () {
     if (!taskId) return;
-    render(await window.desktop.ai.cancelTask({ taskId: taskId }));
+    try {
+      render(await window.desktop.ai.cancelTask({ taskId: taskId }));
+      await refresh();
+    } catch (e) { text('note', e.message); }
   });
   async function decide(approved) {
     var task = await window.desktop.ai.getTaskStatus({ taskId: taskId });
-    if (!task.pendingAction) return;
+    if (task.status !== 'waiting_confirmation' || !task.pendingAction) return;
     await window.desktop.ai.confirmAction({ taskId: taskId, actionId: task.pendingAction.id, approved: approved });
+    await refresh();
   }
   document.getElementById('approveBtn').addEventListener('click', function () { decide(true); });
   document.getElementById('rejectBtn').addEventListener('click', function () { decide(false); });
   if (window.desktop && window.desktop.ai.onProgress) window.desktop.ai.onProgress(render);
+  boot();
 })();

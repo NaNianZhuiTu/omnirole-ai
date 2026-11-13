@@ -52,6 +52,7 @@ app.whenReady().then(() => {
   try {
     ensure();
     library.init();
+    require('./task-engine').recoverInterrupted();
     dbg('LIBRARY_INIT_OK');
     adapter = new RuntimeAdapter(localRuntime);
     register(adapter, () => win);

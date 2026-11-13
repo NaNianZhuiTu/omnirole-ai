@@ -15,7 +15,8 @@
     "dist": "node tools/build-dist.js --win",
     "validate": "node tools/validate-packages.js",
     "smoke": "node tools/smoke-test.js",
-    "test": "node tools/smoke-test.js && node tools/validate-packages.js && node tools/html-workspace-test.js && node tools/task-engine-test.js && node tools/run-electron.js tools/html-embed-check.js",
+    "test": "node tools/smoke-test.js && node tools/validate-packages.js && node tools/html-workspace-test.js && node tools/task-engine-test.js && node tools/run-electron.js tools/html-embed-check.js && node tools/run-electron.js tools/fire-acceptance-check.js",
+    "test:live": "node tools/task-live-test.js",
     "icon": "node tools/make-icon.js"
   },
   "devDependencies": {

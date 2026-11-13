@@ -86,7 +86,27 @@ function searchBusinessIndex(instanceId, args) {
   return { query: args.query, hits: hits.slice(0, 30) };
 }
 
-async function perform(instanceId, name, args) {
+function stopped(signal) {
+  if (!signal || !signal.aborted) return null;
+  if (signal.reason && signal.reason.code === 'TIMEOUT') return signal.reason;
+  const error = new Error('任务已取消');
+  error.name = 'AbortError';
+  return error;
+}
+
+function ensureActive(signal) {
+  const error = stopped(signal);
+  if (error) throw error;
+}
+
+function verifyWritten(abs, label) {
+  if (!fs.existsSync(abs)) throw new Error(label + '没有出现在磁盘上');
+  const st = fs.lstatSync(abs);
+  if (st.isSymbolicLink() || !st.isFile() || st.size < 0) throw new Error(label + '没有通过写入校验');
+  return st;
+}
+async function perform(instanceId, name, args, signal) {
+  ensureActive(signal);
   if (name === 'search_local_files') {
     const found = workspaceApi.searchFiles(instanceId, { query: args.query, limit: args.limit }, 'bound');
     return {
@@ -129,20 +149,31 @@ async function perform(instanceId, name, args) {
     return { activity: '正在读取业务数据：' + data.name, result: data };
   }
   if (name === 'create_document') {
+    ensureActive(signal);
     const format = args.format || 'md';
     if (['md', 'txt', 'json'].indexOf(format) < 0) throw new Error('format 只能是 md、txt 或 json');
-    const name = fileNameFromTitle(args.title, format);
-    const saved = workspaceApi.createDocument(instanceId, { name: name, content: args.content, format: format }, 'bound');
+    const nameOnDisk = fileNameFromTitle(args.title, format);
+    const saved = workspaceApi.createDocument(instanceId, { name: nameOnDisk, content: args.content, format: format }, 'bound');
+    const abs = path.join(instanceDir(instanceId), 'documents', saved.rel);
+    const st = verifyWritten(abs, '文档');
     return {
       activity: '已保存文档：' + saved.rel,
-      savedDocument: { rel: saved.rel, bytes: saved.bytes, path: path.join(instanceDir(instanceId), 'documents', saved.rel) },
-      result: { saved: true, rel: saved.rel, bytes: saved.bytes, path: path.join(instanceDir(instanceId), 'documents', saved.rel) }
+      savedDocument: { rel: saved.rel, bytes: st.size, path: abs },
+      result: { saved: true, rel: saved.rel, bytes: st.size, path: abs }
     };
   }
   if (name === 'write_workspace_data') {
+    ensureActive(signal);
     if (!args.value || typeof args.value !== 'object') throw new Error('value 必须是 JSON 对象或数组');
     const saved = workspaceApi.writeData(instanceId, { name: args.name, value: args.value }, 'bound');
-    return { activity: '已更新业务数据：' + saved.name, dataWrite: saved, result: { saved: true, name: saved.name, bytes: saved.bytes } };
+    const abs = path.join(instanceDir(instanceId), 'data', saved.name);
+    verifyWritten(abs, '业务数据');
+    const written = JSON.parse(fs.readFileSync(abs, 'utf8'));
+    return {
+      activity: '已更新业务数据：' + saved.name,
+      dataWrite: saved,
+      result: { saved: true, name: saved.name, bytes: saved.bytes, value: written }
+    };
   }
   throw new Error('没有这个工具：' + name);
 }
@@ -175,7 +206,9 @@ function proposalFor(instanceId, call, args) {
   };
 }
 
-async function run(instanceId, call) {
+async function run(instanceId, call, signal) {
+  const blocked = stopped(signal);
+  if (blocked) throw blocked;
   const tool = registry.get(call && call.name);
   if (!tool) return { ok: false, error: '没有这个工具：' + (call && call.name || '') + '。程序只执行已登记的工具。' };
   let args;
@@ -203,22 +236,26 @@ async function run(instanceId, call) {
     }
   }
   try {
-    const done = await perform(instanceId, tool.name, args);
+    const done = await perform(instanceId, tool.name, args, signal);
     return { ok: true, activity: done.activity, result: done.result, savedDocument: done.savedDocument, dataWrite: done.dataWrite };
   } catch (e) {
+    if (e && (e.name === 'AbortError' || e.name === 'TimeoutError' || e.code === 'TIMEOUT')) throw e;
     return { ok: false, error: e.message, activity: tool.name + ' 没有完成：' + e.message };
   }
 }
 
-async function commit(instanceId, proposal) {
+async function commit(instanceId, proposal, signal) {
+  const blocked = stopped(signal);
+  if (blocked) throw blocked;
   const tool = registry.get(proposal && proposal.tool);
   if (!tool) return { ok: false, error: '没有这个工具：' + (proposal && proposal.tool || '') };
   try { checkArgs(tool, proposal.arguments || {}); }
   catch (e) { return { ok: false, error: e.message }; }
   try {
-    const done = await perform(instanceId, tool.name, proposal.arguments);
+    const done = await perform(instanceId, tool.name, proposal.arguments, signal);
     return { ok: true, activity: done.activity, result: done.result, savedDocument: done.savedDocument, dataWrite: done.dataWrite };
   } catch (e) {
+    if (e && (e.name === 'AbortError' || e.name === 'TimeoutError' || e.code === 'TIMEOUT')) throw e;
     return { ok: false, error: e.message, activity: tool.name + ' 没有完成：' + e.message };
   }
 }
