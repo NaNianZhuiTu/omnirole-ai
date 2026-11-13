@@ -159,7 +159,6 @@
     }
     hideTip();
     hideMenu();
-    PA.blocks.resetSources();
 
     var html = '';
     if (paths.length) {

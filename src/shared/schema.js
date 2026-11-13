@@ -1,8 +1,8 @@
 /* 岗位包 schema / 视图积木清单 / 校验器
  * UMD：主进程 CommonJS require，渲染进程通过 <script> 挂到 window.PA.schema。
  *
- * 核心约束：岗位包是【纯数据】。校验器会拒绝任何可执行内容字段，
- * 所以「几千个助手」只需做内容校验，不需要做代码安全审查。
+ * 核心约束：岗位包 JSON 是【纯数据】。校验器会拒绝任何可执行内容字段。
+ * HTML 工作台的页面文件不进这份 JSON；页面在独立 webview 里运行，不由此处执行。
  */
 (function (root, factory) {
   var api = factory();
@@ -12,6 +12,7 @@
   'use strict';
 
   var SCHEMA_VERSION = '1.0';
+  var FORMAT_VERSION = '1.0';
 
   // 视图积木清单：引擎实现一次，所有岗位包复用。新增积木只改引擎，不改岗位包格式。
   var BLOCKS = [
@@ -55,6 +56,14 @@
   }
 
   function validatePackage(pkg) {
+    return validateConfig(pkg, true);
+  }
+
+  function validateAssistantConfig(pkg) {
+    return validateConfig(pkg, false);
+  }
+
+  function validateConfig(pkg, requireZones) {
     var errors = [], warnings = [];
     if (!isPlainObject(pkg)) return { ok: false, errors: ['岗位包根节点必须是对象'], warnings: warnings };
 
@@ -63,6 +72,9 @@
     ['schemaVersion', 'id', 'name', 'version', 'industry', 'role'].forEach(function (k) {
       if (typeof pkg[k] !== 'string' || !pkg[k].trim()) errors.push('缺少必填字符串字段：' + k);
     });
+    if (!requireZones && pkg.id && !/^[A-Za-z0-9_-]+$/.test(pkg.id)) {
+      errors.push('id 只能包含字母、数字、下划线和连字符');
+    }
     if (pkg.schemaVersion && pkg.schemaVersion !== SCHEMA_VERSION) {
       errors.push('schemaVersion 不匹配：期望 ' + SCHEMA_VERSION + '，实际 ' + pkg.schemaVersion);
     }
@@ -77,7 +89,7 @@
         errors.push('sources[' + i + '].match 不得写绝对路径，只能写相对匹配模式（授权目录由实例配置）');
       }
     });
-    if (!Array.isArray(pkg.sources) || !pkg.sources.length) warnings.push('未声明任何资料来源');
+    if (requireZones && (!Array.isArray(pkg.sources) || !pkg.sources.length)) warnings.push('未声明任何资料来源');
 
     (pkg.zones || []).forEach(function (z, i) {
       if (!z.id || !z.title || !z.view) errors.push('zones[' + i + '] 缺少 id/title/view');
@@ -89,7 +101,7 @@
         if (!Array.isArray(z.fields) || !z.fields.length) errors.push('zones[' + i + '] 使用 ' + z.view + ' 必须声明 fields');
       }
     });
-    if (!Array.isArray(pkg.zones) || !pkg.zones.length) errors.push('至少需要一个数据区（zones）');
+    if (requireZones && (!Array.isArray(pkg.zones) || !pkg.zones.length)) errors.push('至少需要一个数据区（zones）');
 
     (pkg.dashboard || []).forEach(function (d, i) {
       if (!d.id || !d.label || !d.from || !d.agg) errors.push('dashboard[' + i + '] 缺少 id/label/from/agg');
@@ -113,7 +125,7 @@
     layoutZoneRefs.forEach(function (z) {
       if (!zoneIds[z]) errors.push('layout 引用了不存在的数据区：' + z);
     });
-    if (!Array.isArray(pkg.layout) || !pkg.layout.length) warnings.push('未声明 layout，引擎将按 zones 顺序自动排布');
+    if (requireZones && (!Array.isArray(pkg.layout) || !pkg.layout.length)) warnings.push('未声明 layout，引擎将按 zones 顺序自动排布');
 
     (pkg.chatContext || []).forEach(function (z) {
       if (!zoneIds[z]) errors.push('chatContext 引用了不存在的数据区：' + z);
@@ -127,10 +139,90 @@
     return { ok: errors.length === 0, errors: errors, warnings: warnings };
   }
 
+  function parseSemver(value) {
+    var m = /^(\d+)\.(\d+)\.(\d+)$/.exec(String(value || ''));
+    if (!m) return null;
+    return [Number(m[1]), Number(m[2]), Number(m[3])];
+  }
+
+  function semverLess(left, right) {
+    for (var i = 0; i < 3; i++) {
+      if (left[i] < right[i]) return true;
+      if (left[i] > right[i]) return false;
+    }
+    return false;
+  }
+
+  function normalizeEntry(entry) {
+    if (typeof entry !== 'string' || !entry.trim()) return { error: 'manifest 缺少工作台入口 entry' };
+    if (entry.indexOf('\0') !== -1) return { error: '工作台入口含有非法字符' };
+    var norm = entry.replace(/\\/g, '/').trim();
+    if (norm.charAt(0) === '/' || /^[A-Za-z]:/.test(norm)) return { error: '工作台入口必须是安装包内的相对路径，不能写绝对路径' };
+    var parts = norm.split('/');
+    if (parts.some(function (p) { return !p || p === '.' || p === '..'; })) {
+      return { error: '工作台入口不允许包含上级目录或空路径' };
+    }
+    if (parts[0] !== 'workspace') return { error: '工作台入口必须位于 workspace/ 目录内' };
+    if (!/\.html?$/i.test(parts[parts.length - 1])) return { error: '工作台入口必须是 HTML 文件' };
+    if (norm.length > 180) return { error: '工作台入口路径过长' };
+    return { entry: parts.join('/') };
+  }
+
+  function validateManifest(manifest, appVersion) {
+    var errors = [];
+    if (!isPlainObject(manifest)) return { ok: false, errors: ['manifest.json 根节点必须是对象'], entry: '' };
+    scanForCode(manifest, 'manifest', errors);
+    ['id', 'name', 'version', 'industry', 'role', 'formatVersion', 'minAppVersion', 'entry'].forEach(function (k) {
+      if (typeof manifest[k] !== 'string' || !String(manifest[k]).trim()) errors.push('manifest 缺少必填字段：' + k);
+    });
+    if (manifest.id && !/^[A-Za-z0-9_-]+$/.test(manifest.id)) errors.push('manifest.id 只能包含字母、数字、下划线和连字符');
+    if (manifest.version && !/^\d+\.\d+\.\d+$/.test(manifest.version)) errors.push('manifest.version 必须是 x.y.z 语义化版本');
+    if (manifest.formatVersion && manifest.formatVersion !== FORMAT_VERSION) {
+      errors.push('不支持的安装包格式版本 ' + manifest.formatVersion + '，当前程序只支持 ' + FORMAT_VERSION);
+    }
+    var min = parseSemver(manifest.minAppVersion);
+    var app = parseSemver(appVersion);
+    if (manifest.minAppVersion && !min) errors.push('manifest.minAppVersion 必须是 x.y.z 语义化版本');
+    if (min && !app) errors.push('无法识别当前程序版本：' + appVersion);
+    if (min && app && semverLess(app, min)) {
+      errors.push('当前程序版本 ' + appVersion + ' 低于助手要求的最低版本 ' + manifest.minAppVersion);
+    }
+    var entry = normalizeEntry(manifest.entry);
+    if (entry.error) errors.push(entry.error);
+    return { ok: errors.length === 0, errors: errors, entry: entry.entry || '' };
+  }
+
+  function validateHtmlBundle(input) {
+    var errors = [];
+    var warnings = [];
+    var source = input || {};
+    var manifestResult = validateManifest(source.manifest, source.appVersion);
+    var assistantResult = validateAssistantConfig(source.assistant);
+    errors = errors.concat(manifestResult.errors).concat(assistantResult.errors);
+    warnings = warnings.concat(assistantResult.warnings || []);
+    if (manifestResult.ok && assistantResult.ok) {
+      if (source.manifest.id !== source.assistant.id) errors.push('manifest.id 与 assistant.json 的 id 不一致');
+      if (source.manifest.version !== source.assistant.version) errors.push('manifest.version 与 assistant.json 的 version 不一致');
+      if (source.manifest.name !== source.assistant.name) warnings.push('manifest.name 与 assistant.json 的 name 不一致，界面以 assistant.json 为准');
+    }
+    if (source.assistant && source.assistant.workspaceType && source.assistant.workspaceType !== 'html') {
+      errors.push('HTML 助手的 assistant.json 若声明 workspaceType，只能是 html');
+    }
+    if (manifestResult.entry && typeof source.fileExists === 'function' && !source.fileExists(manifestResult.entry)) {
+      errors.push('找不到工作台入口文件：' + manifestResult.entry);
+    }
+    return { ok: errors.length === 0, errors: errors, warnings: warnings, entry: manifestResult.entry };
+  }
+
   return {
     SCHEMA_VERSION: SCHEMA_VERSION,
+    FORMAT_VERSION: FORMAT_VERSION,
     BLOCKS: BLOCKS,
     BLOCK_IDS: BLOCK_IDS,
-    validatePackage: validatePackage
+    validatePackage: validatePackage,
+    validateAssistantConfig: validateAssistantConfig,
+    validateManifest: validateManifest,
+    validateHtmlBundle: validateHtmlBundle,
+    normalizeEntry: normalizeEntry
   };
 });

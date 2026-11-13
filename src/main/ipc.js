@@ -12,6 +12,8 @@ const trace = require('./trace');
 const indexer = require('./indexer');
 const reader = require('./file-reader');
 const fileOps = require('./file-ops');
+const workspaceHost = require('./workspace-host');
+const workspaceApi = require('./workspace-api');
 
 const controllers = new Map();
 
@@ -29,6 +31,13 @@ function assertAuthorized(instanceId, target) {
   const allowed = roots.some(r => abs === path.resolve(r) || abs.startsWith(path.resolve(r) + path.sep));
   if (!allowed) throw new Error('该路径不在当前助手的授权目录内，已拒绝操作。');
   return abs;
+}
+
+function guestHandle(channel, fn) {
+  handle(channel, (payload, event) => {
+    const instanceId = workspaceHost.instanceFromEvent(event);
+    return fn(instanceId, payload || {});
+  });
 }
 
 function register(adapter, getWindow) {
@@ -59,9 +68,12 @@ function register(adapter, getWindow) {
   handle('library:import', async (p) => library.importPackage(p.filePath));
   handle('library:pickPackage', async () => {
     const r = await dialog.showOpenDialog(getWindow(), {
-      title: '添加助手',
-      properties: ['openFile'],
-      filters: [{ name: '助手文件', extensions: ['json'] }]
+      title: '添加助手：选择包含 manifest.json 的 HTML 助手文件夹',
+      properties: ['openFile', 'openDirectory'],
+      filters: [
+        { name: '助手文件', extensions: ['json'] },
+        { name: '全部文件', extensions: ['*'] }
+      ]
     });
     return r.canceled ? null : r.filePaths[0];
   });
@@ -200,6 +212,18 @@ function register(adapter, getWindow) {
     trace.append(p.instanceId, 'export-index', { to: path.basename(r.filePath) });
     return r.filePath;
   });
+
+  // HTML 工作台。调用者必须是当前助手自己的 webview，不能由主界面或别的实例转发。
+  guestHandle('ws:assistant:getInfo', (id) => workspaceApi.getInfo(id));
+  guestHandle('ws:workspace:getInfo', (id) => workspaceApi.getWorkspace(id));
+  guestHandle('ws:files:list', (id, payload) => workspaceApi.listFiles(id, payload));
+  guestHandle('ws:files:search', (id, payload) => workspaceApi.searchFiles(id, payload));
+  guestHandle('ws:files:read', (id, payload) => workspaceApi.readFile(id, payload));
+  guestHandle('ws:data:read', (id, payload) => workspaceApi.readData(id, payload));
+  guestHandle('ws:data:write', (id, payload) => workspaceApi.writeData(id, payload));
+  guestHandle('ws:documents:list', (id) => workspaceApi.listDocuments(id));
+  guestHandle('ws:documents:create', (id, payload) => workspaceApi.createDocument(id, payload));
+  guestHandle('ws:ai:chat', (id, payload) => workspaceApi.chat(id, payload, adapter));
 }
 
 module.exports = { register };

@@ -10,8 +10,10 @@ const schema = require('../src/shared/schema');
 const root = path.join(__dirname, '..');
 const packagesDir = path.join(root, 'packages');
 let failed = 0;
+let checked = 0;
 
 function check(label, result) {
+  checked += 1;
   console.log('\n== ' + label + ' ==');
   console.log('  结果：' + (result.ok ? '通过' : '不通过'));
   result.errors.forEach(e => console.log('  [错误] ' + e));
@@ -46,6 +48,28 @@ if (fs.existsSync(catalogFile)) {
   check('catalog.json 引用完整性', { ok: errors.length === 0, errors, warnings: [] });
 }
 
-console.log('\n共校验 ' + (dirs.length + 1) + ' 项，失败 ' + failed + ' 项。');
+const samplesDir = path.join(root, 'samples');
+const appVersion = require('../package.json').version;
+if (fs.existsSync(samplesDir)) {
+  fs.readdirSync(samplesDir).forEach(dir => {
+    const base = path.join(samplesDir, dir);
+    const manifestFile = path.join(base, 'manifest.json');
+    if (!fs.existsSync(manifestFile)) return;
+    try {
+      const manifest = JSON.parse(fs.readFileSync(manifestFile, 'utf8'));
+      const assistant = JSON.parse(fs.readFileSync(path.join(base, 'assistant.json'), 'utf8'));
+      check(dir, schema.validateHtmlBundle({
+        manifest: manifest,
+        assistant: assistant,
+        appVersion: appVersion,
+        fileExists: function (rel) { return fs.existsSync(path.join(base, ...rel.split('/'))); }
+      }));
+    } catch (e) {
+      check(dir, { ok: false, errors: [e.message], warnings: [] });
+    }
+  });
+}
+
+console.log('\n共校验 ' + checked + ' 项，失败 ' + failed + ' 项。');
 console.log('视图积木清单：' + schema.BLOCK_IDS.join(' / '));
 process.exit(failed ? 1 : 0);

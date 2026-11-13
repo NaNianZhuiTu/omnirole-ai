@@ -44,29 +44,36 @@ function run() {
   const avail = library.available();
   assert(avail.length === 0, '目录里没有任何岗位包');
 
-  console.log('\n== 导入岗位包（新增助手不重新打包）==');
+  console.log('\n== 不再导入旧 JSON 岗位包 ==');
   const tempPkg = path.join(root, '.smoke-userdata', 'imported-package.json');
-  const imported = {
+  fs.writeFileSync(tempPkg, JSON.stringify({
     schemaVersion: '1.0', id: 'smoke-imported', name: '冒烟测试岗', version: '1.2.3',
     industry: '测试', role: '测试员', sources: [],
-    zones: [{ id: 'notes', title: '说明', view: 'notes' }],
-    layout: [{ cols: [{ zone: 'notes', span: 1 }] }]
-  };
-  fs.writeFileSync(tempPkg, JSON.stringify(imported, null, 2), 'utf8');
-  const r = library.importPackage(tempPkg);
-  assert(r.id === 'smoke-imported', '本机导入岗位包成功并通过校验');
-  const added = library.addInstance('smoke-imported', '导入的助手');
-  assert(library.current().pkg.id === 'smoke-imported', '导入后可立即添加并切换，程序未重新打包');
+    zones: [{ id: 'notes', title: '说明', view: 'notes' }]
+  }), 'utf8');
+  let rejected = '';
+  try { library.importPackage(tempPkg); }
+  catch (e) { rejected = e.message; }
+  assert(rejected.indexOf('manifest.json') >= 0, '单个 JSON 文件不能再当作助手导入');
 
-  console.log('\n== 资料隔离 ==');
-  const smokePaths = library.getAuthorizedPaths(added.id);
-  assert(smokePaths.length === 0, '新实例默认不继承任何其它助手的授权目录');
-
-  console.log('\n== 岗位包纯数据守卫 ==');
-  const schema = require('../src/shared/schema');
-  const bad = JSON.parse(JSON.stringify(imported));
-  bad.zones[0].title = '<script>alert(1)</script>';
-  assert(!schema.validatePackage(bad).ok, '校验器拒绝夹带可执行代码的岗位包');
+  console.log('\n== HTML 助手 ==');
+  const htmlDir = path.join(root, 'samples', 'html-fire-assistant');
+  const htmlImp = library.importPackage(htmlDir);
+  assert(htmlImp.workspaceType === 'html', '导入 HTML 助手安装包');
+  const first = library.addInstance(htmlImp.id, '消防甲');
+  const second = library.addInstance(htmlImp.id, '消防乙');
+  const { instanceDir } = require('../src/main/paths');
+  const firstHtml = path.join(instanceDir(first.id), 'workspace', 'index.html');
+  const secondHtml = path.join(instanceDir(second.id), 'workspace', 'index.html');
+  const templateHtml = path.join(instanceDir(first.id), 'package', 'workspace', 'index.html');
+  fs.appendFileSync(firstHtml, '\n<!-- INSTANCE_A -->\n', 'utf8');
+  assert(fs.readFileSync(secondHtml, 'utf8').indexOf('INSTANCE_A') < 0, '修改一个实例的页面不会影响另一个实例');
+  assert(fs.readFileSync(templateHtml, 'utf8').indexOf('INSTANCE_A') < 0, '修改实例页面不会改到只读模板');
+  assert(library.current().workspace.type === 'html', '当前打开的是 HTML 工作台');
+  library.switchAssistant(first.id);
+  assert(library.current().instance.id === first.id, '切换后回到被修改的那个实例');
+  assert(fs.readFileSync(firstHtml, 'utf8').indexOf('INSTANCE_A') >= 0, '切换回来仍然是该实例自己的页面');
+  assert(library.getAuthorizedPaths(first.id).length === 0, '新实例默认没有授权目录');
 
   console.log('\n冒烟测试结束。');
 }

@@ -102,7 +102,7 @@
         html += '<button class="assist-card' + (active ? ' active' : '') + '" data-inst="' + esc(i.id) + '">' +
           '<span class="assist-badge" style="background:' + esc(i.accent || '#315efb') + '">' + esc(i.icon || '助') + '</span>' +
           '<span class="assist-card-main"><b>' + esc(i.name) + '</b>' +
-          '<small>' + esc(i.packageId) + ' · ' + (i.indexedFileCount || 0) + ' 个文件</small></span>' +
+          '<small>' + esc(i.packageId) + (i.workspaceType === 'html' ? ' · HTML 工作台' : '') + ' · ' + (i.indexedFileCount || 0) + ' 个文件</small></span>' +
           (active ? '<span class="tag blue">当前</span>' : '') + '</button>';
       });
       html += '</div>';
@@ -128,13 +128,16 @@
     renderAccent();
     renderAssistantEntry();
     document.getElementById('mainArea').classList.toggle('chat-view', page === 'ai');
+    var ws = state.current && state.current.workspace;
+    var htmlWs = page === 'workbench' && ws && ws.type === 'html' && ws.ready;
+    document.getElementById('mainArea').classList.toggle('html-workspace-view', !!htmlWs);
     document.querySelectorAll('.page').forEach(function (p) { p.classList.remove('active'); });
     var el = document.getElementById('page-' + page);
     if (el) el.classList.add('active');
     document.querySelectorAll('.nav-item').forEach(function (n) {
       n.classList.toggle('active', n.getAttribute('data-page') === page);
     });
-    if (page === 'workbench') PA.render.renderWorkbench(document.getElementById('page-workbench'), state);
+    if (page === 'workbench') PA.htmlWorkspace.mount(document.getElementById('page-workbench'), state);
     else if (page === 'assistants') renderAssistants(document.getElementById('page-assistants'));
     else if (page === 'files') PA.filesUI.render(document.getElementById('page-files'), state);
     else if (page === 'library') PA.libraryUI.render(document.getElementById('page-library'), state);
@@ -219,7 +222,6 @@
   }
 
   async function init() {
-    PA.source.init();
     PA.chat.init();
     bind();
     try { await reloadAll(); }

@@ -3,6 +3,7 @@
  * 岗位包 = 模板（纯数据，可分发/升级）
  * 助手实例 = 用户自己的一份（岗位包快照 + 授权目录 + 索引 + 对话），永远留在本机
  * 资料隔离靠两点：实例目录互相独立；索引器只读取该实例 authorized-paths.json 里的目录。
+ * HTML 助手还会把安装包原样留在 package/，并复制一份可单独修改的 workspace/。
  */
 'use strict';
 const fs = require('fs');
@@ -15,6 +16,49 @@ const trace = require('./trace');
 function safeId(id) {
   if (!/^[A-Za-z0-9_-]+$/.test(String(id || ''))) throw new Error('非法的助手 ID');
   return id;
+}
+
+function newInstanceId(packageId) {
+  let n = 0;
+  let id = safeId(packageId + '-' + Date.now().toString(36));
+  while (fs.existsSync(instanceDir(id)) || (registry().instances || []).some(i => i.id === id)) {
+    n += 1;
+    if (n > 50) throw new Error('无法分配助手实例 ID');
+    id = safeId(packageId + '-' + Date.now().toString(36) + n.toString(36));
+  }
+  return id;
+}
+
+function workspaceEntryOf(pkg) {
+  const raw = pkg && (pkg.workspaceEntry || pkg.entry) ? String(pkg.workspaceEntry || pkg.entry) : 'workspace/index.html';
+  const norm = raw.replace(/\\/g, '/');
+  const rel = norm.indexOf('workspace/') === 0 ? norm.slice('workspace/'.length) : norm;
+  if (!rel || rel.split('/').some(part => !part || part === '.' || part === '..')) return 'index.html';
+  return rel;
+}
+
+function describeWorkspace(inst, pkg) {
+  if (!inst) return { type: 'json', ready: false, instanceId: null, entry: null, url: null, partition: null, error: null };
+  const type = inst.workspaceType === 'html' || (pkg && pkg.workspaceType === 'html') ? 'html' : 'json';
+  if (type !== 'html') {
+    return {
+      type: 'json', ready: false, instanceId: inst.id, entry: null, url: null, partition: null,
+      error: '这个助手使用的是已经去掉的旧工作台，请重新导入 HTML 助手。'
+    };
+  }
+  const entry = workspaceEntryOf(pkg);
+  const abs = path.join(instanceDir(inst.id), 'workspace', ...entry.split('/'));
+  let ready = false;
+  try { ready = fs.existsSync(abs) && fs.statSync(abs).isFile(); } catch (e) { ready = false; }
+  return {
+    type: 'html',
+    ready,
+    instanceId: inst.id,
+    entry,
+    url: 'pawork://desk/' + entry.split('/').map(encodeURIComponent).join('/'),
+    partition: 'persist:pa-' + inst.id,
+    error: ready ? null : '找不到工作台入口：workspace/' + entry
+  };
 }
 
 function registry() {
@@ -31,12 +75,30 @@ function saveImportedCatalog(c) {
 
 function findPackageSource(packageId) {
   const builtin = readJson(PATHS.catalog, { packages: [] }).packages.find(p => p.id === packageId && p.status !== 'planned');
-  if (builtin) return { catalog: builtin, load: () => loader.loadBuiltin(packageId), builtin: true };
-  const imported = importedCatalog().packages.find(p => p.id === packageId);
-  if (imported) {
+  if (builtin) {
     return {
-      catalog: imported, builtin: false,
-      load: () => loader.parseAndValidate(fs.readFileSync(imported.entry, 'utf8'), packageId)
+      catalog: builtin, builtin: true, workspaceType: 'html',
+      load: () => {
+        const dir = path.join(PATHS.packages, packageId);
+        if (!fs.existsSync(path.join(dir, 'manifest.json'))) {
+          throw new Error('这个岗位包不是 HTML 助手，不能再添加：' + packageId);
+        }
+        return loader.loadHtmlFromDir(dir);
+      }
+    };
+  }
+  const importedList = importedCatalog().packages.filter(p => p.id === packageId);
+  const imported = importedList.length ? importedList[importedList.length - 1] : null;
+  if (imported) {
+    if (imported.workspaceType !== 'html') {
+      return {
+        catalog: imported, builtin: false, workspaceType: 'html',
+        load: () => { throw new Error('这个岗位包是已经去掉的 JSON 格式，请改用带 manifest.json 的 HTML 助手'); }
+      };
+    }
+    return {
+      catalog: imported, builtin: false, workspaceType: 'html',
+      load: () => loader.loadHtmlFromDir(imported.packageDir)
     };
   }
   return null;
@@ -86,15 +148,41 @@ function setAuthorizedPaths(id, paths) {
   return cleaned;
 }
 
-function createInstanceFiles(id, pkg, name, options) {
+function createInstanceFiles(id, pkg, name, options, htmlSource) {
   const dir = instanceDir(id);
+  const createdAt = new Date().toISOString();
   fs.mkdirSync(dir, { recursive: true });
   writeJson(instanceFile(id, 'package.json'), pkg);
   writeJson(instanceFile(id, 'chat.json'), emptyChat());
-  writeJson(instanceFile(id, 'meta.json'), { name, createdAt: new Date().toISOString(), sampleMode: !!options.sampleMode });
+  writeJson(instanceFile(id, 'meta.json'), {
+    name, createdAt, sampleMode: !!options.sampleMode, workspaceType: pkg.workspaceType || 'json'
+  });
   if (!fs.existsSync(instanceFile(id, 'authorized-paths.json'))) {
     writeJson(instanceFile(id, 'authorized-paths.json'), { paths: [] });
   }
+  if (!htmlSource) return;
+  ['package', 'workspace', 'data', 'documents', 'index', 'conversations', 'versions', 'config', 'knowledge'].forEach(function (name) {
+    fs.mkdirSync(path.join(dir, name), { recursive: true });
+  });
+  loader.copyPackageTree(htmlSource.sourceDir, path.join(dir, 'package'));
+  loader.copyPackageTree(path.join(htmlSource.sourceDir, 'workspace'), path.join(dir, 'workspace'));
+  const knowledge = path.join(htmlSource.sourceDir, 'knowledge');
+  if (fs.existsSync(knowledge) && fs.statSync(knowledge).isDirectory()) {
+    loader.copyPackageTree(knowledge, path.join(dir, 'knowledge'));
+  }
+  writeJson(path.join(dir, 'manifest.json'), htmlSource.manifest);
+  writeJson(path.join(dir, 'config', 'workspace.json'), {
+    workspaceType: 'html',
+    entry: htmlSource.entry || (htmlSource.manifest && htmlSource.manifest.entry),
+    templateId: pkg.id,
+    templateVersion: pkg.version,
+    createdAt
+  });
+  writeJson(path.join(dir, 'config', 'template-lock.json'), {
+    readonly: true,
+    note: 'package/ 是原始安装包模板，页面接口不能修改它'
+  });
+  writeJson(path.join(dir, 'versions', pkg.version + '.json'), { version: pkg.version, createdAt });
 }
 
 function reindexInstance(instanceId, pkgOverride) {
@@ -110,25 +198,34 @@ function reindexInstance(instanceId, pkgOverride) {
 function addInstance(packageId, name, options) {
   const source = findPackageSource(packageId);
   if (!source) throw new Error('目录中找不到该岗位包：' + packageId);
-  const { pkg } = source.load();
-  const id = safeId(packageId + '-' + Date.now().toString(36));
+  const loaded = source.load();
+  if (loaded.kind !== 'html') throw new Error('只能添加带 HTML 工作台的助手');
+  const pkg = loaded.pkg;
+  const workspaceType = 'html';
+  const snapshot = Object.assign({}, pkg, { workspaceType: workspaceType });
+  const id = newInstanceId(packageId);
   const label = name || pkg.name;
   const opts = options || {};
-  createInstanceFiles(id, pkg, label, opts);
-
-  if (opts.authorizedPaths && opts.authorizedPaths.length) setAuthorizedPaths(id, opts.authorizedPaths);
+  try {
+    createInstanceFiles(id, snapshot, label, opts, loaded);
+    if (opts.authorizedPaths && opts.authorizedPaths.length) setAuthorizedPaths(id, opts.authorizedPaths);
+  } catch (e) {
+    fs.rmSync(instanceDir(id), { recursive: true, force: true });
+    throw e;
+  }
 
   const r = registry();
   r.instances.push({
     id, name: label, packageId: pkg.id, packageVersion: pkg.version,
     createdAt: new Date().toISOString(), sampleMode: !!opts.sampleMode,
-    accent: pkg.accent || '#315efb', icon: pkg.icon || '助'
+    accent: pkg.accent || '#315efb', icon: pkg.icon || '助',
+    workspaceType: workspaceType
   });
   r.activeId = id;
   saveRegistry(r);
   trace.append(id, 'add-instance', { packageId: pkg.id, packageVersion: pkg.version, name: label });
-  reindexInstance(id, pkg);
-  return { id, name: label, packageId: pkg.id };
+  reindexInstance(id, snapshot);
+  return { id, name: label, packageId: pkg.id, workspaceType: workspaceType };
 }
 
 function switchAssistant(id) {
@@ -161,35 +258,68 @@ function renameInstance(id, name) {
   inst.name = String(name || '').trim() || inst.name;
   saveRegistry(r);
   writeJson(instanceFile(id, 'meta.json'), {
-    name: inst.name, createdAt: inst.createdAt, sampleMode: !!inst.sampleMode
+    name: inst.name, createdAt: inst.createdAt, sampleMode: !!inst.sampleMode,
+    workspaceType: inst.workspaceType || 'json'
   });
   return listInstances();
 }
 
-function importPackage(filePath) {
-  const { pkg, warnings } = loader.importFromFile(filePath);
-  const targetDir = path.join(PATHS.imported, pkg.id, pkg.version);
-  fs.mkdirSync(targetDir, { recursive: true });
-  const target = path.join(targetDir, 'package.json');
-  fs.writeFileSync(target, JSON.stringify(pkg, null, 2), 'utf8');
-
+function rememberPackage(pkg, extra) {
   const c = importedCatalog();
   c.packages = c.packages.filter(p => !(p.id === pkg.id && p.version === pkg.version));
-  c.packages.push({
+  c.packages.push(Object.assign({
     id: pkg.id, name: pkg.name, version: pkg.version, industry: pkg.industry,
-    role: pkg.role, builtin: false, origin: '本机导入',
-    entry: target, status: 'ready'
-  });
+    role: pkg.role, builtin: false, origin: '本机导入', status: 'ready'
+  }, extra));
   saveImportedCatalog(c);
-  trace.append('library', 'import-package', { id: pkg.id, version: pkg.version, from: path.basename(filePath) });
-  return { id: pkg.id, name: pkg.name, version: pkg.version, warnings };
+}
+
+function importHtmlPackage(inspected, filePath) {
+  const pkg = inspected.pkg;
+  const targetDir = path.join(PATHS.imported, pkg.id, pkg.version);
+  const staging = targetDir + '.importing';
+  fs.rmSync(staging, { recursive: true, force: true });
+  try {
+    loader.copyPackageTree(inspected.sourceDir, staging);
+    fs.rmSync(targetDir, { recursive: true, force: true });
+    fs.renameSync(staging, targetDir);
+  } catch (e) {
+    fs.rmSync(staging, { recursive: true, force: true });
+    throw e;
+  }
+  const stored = loader.loadHtmlFromDir(targetDir);
+  rememberPackage(pkg, {
+    entry: path.join(targetDir, 'assistant.json'),
+    packageDir: targetDir,
+    workspaceType: 'html',
+    formatVersion: inspected.manifest.formatVersion,
+    entryHtml: inspected.manifest.entry
+  });
+  trace.append('library', 'import-package', {
+    id: pkg.id, version: pkg.version, workspaceType: 'html', from: path.basename(filePath)
+  });
+  return {
+    id: pkg.id, name: pkg.name, version: pkg.version,
+    warnings: stored.warnings, workspaceType: 'html'
+  };
+}
+
+function importPackage(filePath) {
+  const inspected = loader.inspectImport(filePath);
+  if (inspected.kind !== 'html') throw new Error('只能导入带 manifest.json 的 HTML 助手');
+  return importHtmlPackage(inspected, filePath);
 }
 
 /** 切换助手时一次性返回该助手的完整上下文（岗位包 + 索引 + 对话），避免串台。 */
 function current() {
   const r = registry();
   const inst = r.instances.find(i => i.id === r.activeId) || r.instances[0] || null;
-  if (!inst) return { instance: null, pkg: null, index: null, chat: emptyChat(), authorizedPaths: [] };
+  if (!inst) {
+    return {
+      instance: null, pkg: null, index: null, chat: emptyChat(), authorizedPaths: [],
+      workspace: describeWorkspace(null, null)
+    };
+  }
   safeId(inst.id);
   let pkg;
   try { pkg = loader.loadForInstance(inst.id, inst.packageId).pkg; }
@@ -200,6 +330,7 @@ function current() {
     index: indexer.loadIndex(inst.id),
     chat: readChat(inst.id),
     authorizedPaths: getAuthorizedPaths(inst.id),
+    workspace: describeWorkspace(inst, pkg),
     packageError: pkg ? null : '岗位包快照校验失败，该助手暂不可用'
   };
 }

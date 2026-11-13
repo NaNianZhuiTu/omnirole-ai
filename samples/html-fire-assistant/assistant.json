@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "1.0",
+  "id": "html-fire-demo",
+  "name": "消防助手",
+  "version": "1.0.0",
+  "industry": "安全",
+  "role": "消防管理员",
+  "accent": "#d0453b",
+  "icon": "消",
+  "summary": "用于验证 HTML 工作台的最小岗位助手",
+  "duties": ["检查消防设施", "记录隐患"],
+  "modules": ["巡检", "台账"],
+  "objects": ["灭火器", "消火栓"],
+  "rules": ["资料里没有的内容要写未找到"],
+  "sources": [],
+  "workspaceType": "html"
+}

@@ -14,7 +14,9 @@ settings.json
 *.db
 *.sqlite
 *.sqlite3
-*.tmp
+.smoke-userdata/
+.html-test-userdata/
+.embed-userdata/
 
 # 界面截图含本机路径与运行痕迹，暂不入库
 screenshots/

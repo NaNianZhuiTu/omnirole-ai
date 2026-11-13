@@ -173,6 +173,7 @@ function reindex(instance, pkg) {
   const dir = instanceDir(instance.id);
   if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   writeJson(instanceFile(instance.id, 'index.json'), index);
+  writeJson(path.join(instanceDir(instance.id), 'index', 'index.json'), index);
   trace.append(instance.id, 'reindex', {
     packageId: pkg.id, fileCount: allFiles.length,
     rowCount: index.summary.rowCount, issueCount: issues.length

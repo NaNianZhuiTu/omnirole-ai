@@ -15,7 +15,7 @@
     list.instances.forEach(function (i) {
       html += '<div class="list-row"><div class="assist-badge" style="background:' + esc(i.accent || '#315efb') + '">' + esc(i.icon || '助') + '</div>' +
         '<div class="grow"><b>' + esc(i.name) + (i.id === list.activeId ? ' <span class="tag blue">当前</span>' : '') + '</b>' +
-        '<small>' + esc(i.packageId) + ' v' + esc(i.packageVersion) + ' · 授权 ' + (i.authorizedPathCount || 0) + ' 个目录 · 已索引 ' + (i.indexedFileCount || 0) + ' 个文件' + (i.sampleMode ? ' · 示例资料' : '') + '</small></div>' +
+        '<small>' + esc(i.packageId) + ' v' + esc(i.packageVersion) + (i.workspaceType === 'html' ? ' · HTML 工作台' : '') + ' · 授权 ' + (i.authorizedPathCount || 0) + ' 个目录 · 已索引 ' + (i.indexedFileCount || 0) + ' 个文件' + (i.sampleMode ? ' · 示例资料' : '') + '</small></div>' +
         '<div class="acts">' +
         (i.id === list.activeId ? '' : '<button class="secondary-btn" data-switch="' + esc(i.id) + '">切换</button>') +
         '<button class="secondary-btn" data-rename="' + esc(i.id) + '">重命名</button>' +

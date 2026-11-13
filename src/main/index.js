@@ -1,5 +1,6 @@
 'use strict';
 const { app, BrowserWindow } = require('electron');
+require('./workspace-scheme');
 const path = require('path');
 const fs = require('fs');
 const { PATHS, ensure } = require('./paths');
@@ -8,6 +9,7 @@ const { RuntimeAdapter } = require('./runtime/adapter');
 const localRuntime = require('./runtime/local-runtime');
 const { register } = require('./ipc');
 const menu = require('./menu');
+const workspaceHost = require('./workspace-host');
 
 let win = null;
 let adapter = null;
@@ -28,11 +30,13 @@ function createWindow() {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,
-      sandbox: false
+      sandbox: false,
+      webviewTag: true
     }
   });
   menu.attach(win);
   menu.attachShortcuts(win);
+  workspaceHost.install(win);
   win.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
 }
 
