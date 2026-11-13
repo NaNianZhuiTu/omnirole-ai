@@ -19,3 +19,6 @@ settings.json
 # 界面截图含本机路径与运行痕迹，暂不入库
 screenshots/
 
+# 本机一键推送辅助脚本（不入库）
+push-to-github.cmd
+
